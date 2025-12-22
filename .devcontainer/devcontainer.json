@@ -1,8 +1,8 @@
 {
-  "name": "Rust Template",
+  "name": "Compiler Design - Wilhelm, Seidl",
   "runArgs": [
     "--name",
-    "rust-template"
+    "cd-wilhelm-seidl"
   ],
   "build": {
     "dockerfile": "Dockerfile"
@@ -12,7 +12,7 @@
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
   "containerEnv": {
-    "CARGO_TARGET_DIR": "/home/vscode/.cache/rust-template/target"
+    "CARGO_TARGET_DIR": "/home/vscode/.cache/cd-wilhelm-seidl/target"
   },
   "postCreateCommand": "bash .devcontainer/setup.sh",
   "customizations": {
@@ -27,14 +27,12 @@
       ],
       "settings": {
         "rust-analyzer.checkOnSave.enable": true,
+        "rust-analyzer.cargo.features": "all",
         "rust-analyzer.check.command": "clippy",
-        "rust-analyzer.cargo.targetDir": "/home/vscode/.cache/fabulist/target",
-        "rust-analyzer.cargo.extraEnv": {
-          "CARGO_TARGET_DIR": "/home/vscode/.cache/fabulist/target"
-        }
+        "rust-analyzer.cargo.targetDir": "/home/vscode/.cache/cd-wilhelm-seidl/target"
       }
     }
   },
   "remoteUser": "vscode",
-  "workspaceFolder": "/workspaces/rust-template"
+  "workspaceFolder": "/workspaces/cd-wilhelm-seidl"
 }

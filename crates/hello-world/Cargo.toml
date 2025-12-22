@@ -1,0 +1,4 @@
+[package]
+name = "hello-world"
+edition.workspace = true
+rust-version.workspace = true

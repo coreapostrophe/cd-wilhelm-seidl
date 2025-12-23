@@ -87,6 +87,8 @@ impl VM {
         loop {
             let instruction = unsafe { &*self.program_store.add(self.program_counter) };
 
+            self.program_counter += 1;
+
             match instruction {
                 Instruction::LoadC(value) => {
                     self.stack_pointer += 1;
@@ -169,7 +171,6 @@ impl VM {
                             .checked_add(*offset as usize)
                             .ok_or(MachineError::JumpOverflow)?;
                     }
-                    continue;
                 }
                 Instruction::JumpZ(offset) => {
                     let val = unsafe { &*self.stack.add(self.stack_pointer) };
@@ -186,17 +187,44 @@ impl VM {
                                     .checked_add(*offset as usize)
                                     .ok_or(MachineError::JumpOverflow)?;
                             }
-                            continue;
+                            self.stack_pointer -= 1;
+                        }
+                    } else {
+                        return Err(MachineError::NonNumberOperand);
+                    }
+                }
+                Instruction::JumpI(addr) => {
+                    if let Value::Address(base_addr) = addr {
+                        let offset = unsafe { &*self.stack.add(self.stack_pointer) };
+                        if let Value::Int(int_offset) = offset {
+                            if *int_offset < 0 {
+                                self.program_counter = base_addr
+                                    .checked_sub((-*int_offset) as usize)
+                                    .ok_or(MachineError::JumpOverflow)?;
+                            } else {
+                                self.program_counter = base_addr
+                                    .checked_add(*int_offset as usize)
+                                    .ok_or(MachineError::JumpOverflow)?;
+                            }
+                            self.stack_pointer -= 1;
+                        } else {
+                            return Err(MachineError::NonNumberOperand);
                         }
                     } else {
                         return Err(MachineError::NonNumberOperand);
                     }
                 }
 
+                Instruction::Dup => {
+                    let val = unsafe { &*self.stack.add(self.stack_pointer) };
+                    self.stack_pointer += 1;
+                    unsafe {
+                        *self.stack.add(self.stack_pointer) = val.clone();
+                    }
+                }
+
                 Instruction::Halt => break,
             }
-
-            self.program_counter += 1;
         }
 
         Ok(())
@@ -318,7 +346,7 @@ mod vm_tests {
     #[test]
     fn jump_instruction_interprets() {
         let program = vec![
-            Instruction::Jump(2),               // jump to instruction 3
+            Instruction::Jump(1),               // jump to instruction 3
             Instruction::LoadC(Value::Int(0)),  // skipped
             Instruction::LoadC(Value::Int(42)), // stack[1] = 42
             Instruction::Halt,
@@ -337,7 +365,7 @@ mod vm_tests {
     fn jumpz_instruction_interprets() {
         let falsy_condition_program = vec![
             Instruction::LoadC(Value::Int(0)),  // stack[1] = 0
-            Instruction::JumpZ(2),              // jump to instruction 4
+            Instruction::JumpZ(1),              // jump to instruction 4
             Instruction::LoadC(Value::Int(0)),  // skipped
             Instruction::LoadC(Value::Int(42)), // stack[2] = 42
             Instruction::Halt,
@@ -348,12 +376,12 @@ mod vm_tests {
 
         let vm = vm.expect("Failed to interpret program");
 
-        let stack_value = unsafe { &*vm.stack.add(2) };
+        let stack_value = unsafe { &*vm.stack.add(1) };
         assert_eq!(stack_value, &Value::Int(42));
 
         let truthy_condition_program = vec![
             Instruction::LoadC(Value::Int(1)),  // stack[1] = 1
-            Instruction::JumpZ(2),              // not taken
+            Instruction::JumpZ(1),              // not taken
             Instruction::LoadC(Value::Int(42)), // stack[2] = 42
             Instruction::Halt,
         ];
@@ -383,6 +411,76 @@ mod vm_tests {
     }
 
     #[test]
+    fn jumpi_instruction_interprets() {
+        let program = vec![
+            Instruction::LoadC(Value::Int(1)),     // stack[1] = 1 (offset)
+            Instruction::JumpI(Value::Address(2)), // jump to instruction 4
+            Instruction::LoadC(Value::Int(0)),     // skipped
+            Instruction::LoadC(Value::Int(42)),    // stack[3] = 42
+            Instruction::Halt,
+        ];
+
+        let vm = VM::interpret(program);
+        assert!(vm.is_ok());
+
+        let vm = vm.expect("Failed to interpret program");
+
+        let stack_value = unsafe { &*vm.stack.add(1) };
+        assert_eq!(stack_value, &Value::Int(42));
+    }
+
+    #[test]
+    fn dup_instruction_interprets() {
+        let program = vec![
+            Instruction::LoadC(Value::Int(42)), // stack[1] = 42
+            Instruction::Dup,                   // stack[2] = 42
+            Instruction::Halt,
+        ];
+
+        let vm = VM::interpret(program);
+        assert!(vm.is_ok());
+
+        let vm = vm.expect("Failed to interpret program");
+
+        let stack_value_1 = unsafe { &*vm.stack.add(1) };
+        let stack_value_2 = unsafe { &*vm.stack.add(2) };
+
+        assert_eq!(stack_value_1, &Value::Int(42));
+        assert_eq!(stack_value_2, &Value::Int(42));
+    }
+
+    #[test]
+    fn if_else_program_interprets() {
+        /*
+         * if (1) {
+         *    x = 42;
+         * } else {
+         *    x = 7;
+         * }
+         */
+        let program = vec![
+            Instruction::LoadC(Value::Int(1)),     // stack[1] = 1 (condition)
+            Instruction::JumpZ(4),                 // not taken
+            Instruction::LoadC(Value::Int(42)),    // stack[2] = 42
+            Instruction::LoadC(Value::Address(3)), // stack[3] = &x
+            Instruction::Store,                    // x = 42
+            Instruction::Jump(3),                  // jump to end
+            Instruction::LoadC(Value::Int(7)),     // skipped
+            Instruction::LoadC(Value::Address(3)), // skipped
+            Instruction::Store,                    // skipped
+            Instruction::Halt,
+        ];
+
+        let vm = VM::interpret(program);
+        assert!(vm.is_ok());
+
+        let vm = vm.expect("Failed to interpret program");
+
+        let stack_value = unsafe { &*vm.stack.add(3) };
+        assert_eq!(stack_value, &Value::Int(42));
+    }
+
+    #[test]
     fn iteration_program_interprets() {
         /*
          * i = 0;
@@ -399,14 +497,14 @@ mod vm_tests {
             Instruction::Load,                     // stack[2] = i
             Instruction::LoadC(Value::Int(5)),     // stack[3] = 5
             Instruction::Lt,                       // stack[2] = (i < 5)
-            Instruction::JumpZ(8),                 // if false, jump to end
+            Instruction::JumpZ(7),                 // if false, jump to end
             Instruction::LoadC(Value::Address(1)), // stack[4] = &i
             Instruction::Load,                     // stack[4] = i
             Instruction::LoadC(Value::Int(1)),     // stack[5] = 1
             Instruction::Add,                      // stack[4] = i + 1
             Instruction::LoadC(Value::Address(1)), // stack[5] = &i
             Instruction::Store,                    // stack[1] = i + 1
-            Instruction::Jump(-11),                // jump back to loop_start
+            Instruction::Jump(-12),                // jump back to loop_start
             // end:
             Instruction::Halt,
         ];

@@ -10,6 +10,9 @@ pub enum Instruction {
     Pop,
     Jump(isize),
     JumpZ(isize),
+    JumpI(Value),
+
+    Dup,
 
     Add,
     Mul,

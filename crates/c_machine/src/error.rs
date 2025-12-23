@@ -6,6 +6,8 @@ pub enum MachineError {
     InvalidLayout(#[from] std::alloc::LayoutError),
     #[error("Invalid memory address")]
     InvalidMemoryAddress,
+    #[error("Jump resulted in overflow")]
+    JumpOverflow,
     #[error("Out of memory")]
     OutOfMemory,
 }

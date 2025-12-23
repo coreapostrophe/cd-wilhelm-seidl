@@ -132,9 +132,8 @@ impl VM {
 
                 Instruction::Load => {
                     let addr = unsafe { &*self.stack.add(self.stack_pointer) };
-                    if let Value::Int(addr_val) = addr {
-                        let load_addr = *addr_val as usize;
-                        let value = unsafe { &*self.stack.add(load_addr) };
+                    if let Value::Address(load_addr) = addr {
+                        let value = unsafe { &*self.stack.add(*load_addr) };
                         self.stack_pointer += 1;
                         unsafe {
                             *self.stack.add(self.stack_pointer) = value.clone();
@@ -147,10 +146,9 @@ impl VM {
                     let addr = unsafe { &*self.stack.add(self.stack_pointer) };
                     self.stack_pointer -= 1;
                     let value = unsafe { &*self.stack.add(self.stack_pointer) };
-                    if let Value::Int(addr_val) = addr {
-                        let store_addr = *addr_val as usize;
+                    if let Value::Address(store_addr) = addr {
                         unsafe {
-                            *self.stack.add(store_addr) = value.clone();
+                            *self.stack.add(*store_addr) = value.clone();
                         }
                     } else {
                         return Err(MachineError::InvalidMemoryAddress);
@@ -162,6 +160,44 @@ impl VM {
                         self.stack_pointer -= 1;
                     }
                 }
+                Instruction::Jump(offset) => {
+                    if *offset < 0 {
+                        self.program_counter = self
+                            .program_counter
+                            .checked_sub((-*offset) as usize)
+                            .ok_or(MachineError::JumpOverflow)?;
+                        continue;
+                    } else {
+                        self.program_counter = self
+                            .program_counter
+                            .checked_add(*offset as usize)
+                            .ok_or(MachineError::JumpOverflow)?;
+                        continue;
+                    }
+                }
+                Instruction::JumpZ(offset) => {
+                    let val = unsafe { &*self.stack.add(self.stack_pointer) };
+                    if let Value::Int(int_val) = val {
+                        if *int_val == 0 {
+                            if *offset < 0 {
+                                self.program_counter = self
+                                    .program_counter
+                                    .checked_sub((-*offset) as usize)
+                                    .ok_or(MachineError::JumpOverflow)?;
+                                continue;
+                            } else {
+                                self.program_counter = self
+                                    .program_counter
+                                    .checked_add(*offset as usize)
+                                    .ok_or(MachineError::JumpOverflow)?;
+                                continue;
+                            }
+                        }
+                    } else {
+                        return Err(MachineError::NonNumberOperand);
+                    }
+                }
+
                 Instruction::Halt => break,
             }
 
@@ -255,9 +291,9 @@ mod vm_tests {
     #[test]
     fn load_instruction_interprets() {
         let program = vec![
-            Instruction::LoadC(Value::Int(42)), // stack[1] = 42
-            Instruction::LoadC(Value::Int(1)),  // stack[2] = 1 (address)
-            Instruction::Load,                  // stack[3] = stack[1] = 42
+            Instruction::LoadC(Value::Int(42)),    // stack[1] = 42
+            Instruction::LoadC(Value::Address(1)), // stack[2] = 1 (address)
+            Instruction::Load,                     // stack[3] = stack[1] = 42
             Instruction::Halt,
         ];
 
@@ -275,9 +311,50 @@ mod vm_tests {
     #[test]
     fn store_instruction_interprets() {
         let program = vec![
+            Instruction::LoadC(Value::Int(42)),    // stack[1] = 42
+            Instruction::LoadC(Value::Address(2)), // stack[2] = 2 (address)
+            Instruction::Store,                    // stack[2] -> stack[2] = 42
+            Instruction::Halt,
+        ];
+
+        let vm = VM::interpret(program);
+
+        assert!(vm.is_ok());
+
+        let vm = vm.expect("Failed to interpret program");
+
+        let stack_value = unsafe { &*vm.stack.add(2) };
+
+        assert_eq!(stack_value, &Value::Int(42));
+    }
+
+    #[test]
+    fn jump_instruction_interprets() {
+        let program = vec![
+            Instruction::Jump(2),               // jump to instruction 3
+            Instruction::LoadC(Value::Int(0)),  // skipped
             Instruction::LoadC(Value::Int(42)), // stack[1] = 42
-            Instruction::LoadC(Value::Int(2)),  // stack[2] = 2 (address)
-            Instruction::Store,                 // stack[2] -> stack[2] = 42
+            Instruction::Halt,
+        ];
+
+        let vm = VM::interpret(program);
+
+        assert!(vm.is_ok());
+
+        let vm = vm.expect("Failed to interpret program");
+
+        let stack_value = unsafe { &*vm.stack.add(1) };
+
+        assert_eq!(stack_value, &Value::Int(42));
+    }
+
+    #[test]
+    fn jumpz_instruction_interprets() {
+        let program = vec![
+            Instruction::LoadC(Value::Int(0)),  // stack[1] = 0
+            Instruction::JumpZ(2),              // jump to instruction 4
+            Instruction::LoadC(Value::Int(0)),  // skipped
+            Instruction::LoadC(Value::Int(42)), // stack[2] = 42
             Instruction::Halt,
         ];
 

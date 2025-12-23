@@ -7,6 +7,8 @@ pub enum Instruction {
     Store,
 
     Pop,
+    Jump(isize),
+    JumpZ(isize),
 
     Add,
     Mul,
